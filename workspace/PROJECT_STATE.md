@@ -5,10 +5,10 @@ Build and verify an MCP File Server that allows authorized AI agents to work saf
 
 ## Current Status
 - M1: Basic MCP server and file tools implemented.
-- M2: Core file tools implemented; sandbox escape protections and tests still require verification.
-- M3: OAuth authentication and remote MCP client connection tested. TypeScript build passed. Changes committed and pushed to GitHub.
-- M4: Handoff protocol, safeguards, and tool-call logging are in progress.
-- M5: Multi-session demonstration and final report are pending.
+- M2: Core file tools implemented. Path traversal rejection tests have passed; symlink security verification remains incomplete.
+- M3: OAuth-protected remote MCP connection tested with Claude Desktop. The server runs under PM2 and is accessible through the configured ngrok tunnel.
+- M4: Handoff protocol, file-size limits, protected-file rules, delete confirmation, and tool-call logging implemented. Build and targeted tests have passed; final live and security checks remain.
+- M5: Multi-session demonstration, transcript collection, and final report are pending.
 
 ## Current Architecture
 - Node.js and TypeScript
@@ -19,17 +19,28 @@ Build and verify an MCP File Server that allows authorized AI agents to work saf
 - ngrok HTTPS tunnel
 - Configured workspace sandbox
 
+## M4 Verification Results
+- `npm run build` completed successfully after the latest source changes.
+- Direct path traversal tests rejected the tested unsafe paths.
+- Protected-file helper tests passed.
+- Actual `str_replace` handler tests confirmed that PROJECT_STATE.md and DECISIONS.md pass the protection check, while PLAN_LOG.md and AGENTS.md are blocked.
+- Actual `write_file` and `delete_file` handler tests confirmed that AGENTS.md is protected, including when delete confirmation is true.
+- File-size limit tests for `write_file` and `str_replace` passed previously.
+- A successful `list_files` call confirmed the updated `calls.log` format records the timestamp, tool name, argument keys, and outcome without recording argument values.
+- The PM2 process was reported online.
+- `AGENTS.md` was restored to its tracked version after a test.
+
 ## Current Focus
-Complete M4 by creating the handoff protocol, recording decisions and plans, verifying safeguards for destructive operations, and implementing tool-call logging.
+Finish the remaining M4 checks, review all changes, and prepare a clean commit before starting M5.
 
 ## Next Steps
-1. Review and commit the handoff documentation in the workspace repository.
-2. Inspect the MCP server implementation for file-size limits and protected handoff-file rules.
-3. Verify whether `delete_file` requires explicit confirmation.
-4. Verify whether every tool call is recorded in `calls.log`.
-5. Test path traversal and symlink protections.
-6. Update this project state and plan log with verified results.
-7. Proceed to the M5 multi-session demonstration.
+1. Review the final source and checkpoint changes.
+2. Verify logging after the latest build with a fresh MCP call.
+3. Complete symlink security tests where the environment permits.
+4. Run a final live MCP smoke test.
+5. Update PLAN_LOG.md with verified results.
+6. Run `git diff --check`, inspect Git status, and commit the M4 changes.
+7. Plan the M5 multi-session demonstration and final report.
 
 ## Important Rules
 - Keep secrets out of workspace documentation and Git commits.

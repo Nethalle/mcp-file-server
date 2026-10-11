@@ -38,8 +38,24 @@ const provider = new FileServerOAuthProvider();
 // Store calls.log in the main project directory.
 const CALLS_LOG = new URL("../calls.log", import.meta.url);
 
+/**
+ * Summarize tool arguments without recording their values.
+ * This avoids logging file contents, passwords, tokens, or credentials.
+ */
+function summarizeToolArgs(args: unknown): string {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    return "keys=[]";
+  }
+
+  const input = args as Record<string, unknown>;
+  const keys = Object.keys(input).sort();
+
+  return `keys=[${keys.join(",")}]`;
+}
+
 async function logToolCall(
   toolName: string,
+  argsSummary: string,
   outcome: "success" | "failure"
 ): Promise<void> {
   const timestamp = new Date().toISOString();
@@ -47,7 +63,7 @@ async function logToolCall(
   try {
     await fs.appendFile(
       CALLS_LOG,
-      `${timestamp} tool=${toolName} outcome=${outcome}\n`,
+      `${timestamp} tool=${toolName} args=${argsSummary} outcome=${outcome}\n`,
       "utf8"
     );
   } catch (error) {
@@ -63,7 +79,7 @@ function createMcpServer() {
   });
 
   // Wrap tool registration so every registered tool is logged.
-  // Do not log arguments, file contents, or returned data.
+  // Log argument names only, never argument values or returned data.
   const originalRegisterTool = server.registerTool.bind(server);
 
   (server as any).registerTool = (
@@ -90,7 +106,11 @@ function createMcpServer() {
         outcome = "failure";
         throw error;
       } finally {
-        await logToolCall(name, outcome);
+        await logToolCall(
+          name,
+          summarizeToolArgs(args[0]),
+          outcome
+        );
       }
     });
   };

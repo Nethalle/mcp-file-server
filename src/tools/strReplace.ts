@@ -2,7 +2,7 @@
 import fs from "node:fs/promises";
 import { z } from "zod";
 import { resolveSafePath } from "../sandbox.js";
-import { assertNotProtectedFile } from "../protectedFiles.js";
+import { assertStrReplaceAllowed } from "../protectedFiles.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 const MAX_FILE_SIZE = 1024 * 1024; // 1 MiB
@@ -12,7 +12,7 @@ export function registerStrReplace(server: McpServer) {
     "str_replace",
     {
       description:
-        "Replace an exact, unique text match in a workspace file. Protected handoff files cannot be modified.",
+        "Replace an exact, unique text match in a workspace file. PROJECT_STATE.md and DECISIONS.md allow targeted replacements; PLAN_LOG.md and AGENTS.md are protected.",
       inputSchema: {
         path: z.string().min(1),
         old_text: z.string().min(1),
@@ -23,8 +23,8 @@ export function registerStrReplace(server: McpServer) {
       try {
         const safePath = await resolveSafePath(userPath);
 
-        // Block changes to protected handoff files.
-        assertNotProtectedFile(safePath);
+        // Apply the handoff-file replacement policy.
+        assertStrReplaceAllowed(safePath);
 
         const content = await fs.readFile(safePath, "utf8");
 
