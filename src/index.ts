@@ -1,3 +1,4 @@
+
 import express from "express";
 import fs from "node:fs/promises";
 import dotenv from "dotenv";
@@ -32,14 +33,67 @@ if (!BASE_URL) {
 
 const issuerUrl = new URL(BASE_URL);
 const MCP_URL = new URL("/mcp", BASE_URL);
-
 const provider = new FileServerOAuthProvider();
+
+// Store calls.log in the main project directory.
+const CALLS_LOG = new URL("../calls.log", import.meta.url);
+
+async function logToolCall(
+  toolName: string,
+  outcome: "success" | "failure"
+): Promise<void> {
+  const timestamp = new Date().toISOString();
+
+  try {
+    await fs.appendFile(
+      CALLS_LOG,
+      `${timestamp} tool=${toolName} outcome=${outcome}\n`,
+      "utf8"
+    );
+  } catch (error) {
+    // Logging failures must not change the tool's result.
+    console.error("Unable to write calls.log:", error);
+  }
+}
 
 function createMcpServer() {
   const server = new McpServer({
     name: "mcp-file-server",
     version: "1.0.0",
   });
+
+  // Wrap tool registration so every registered tool is logged.
+  // Do not log arguments, file contents, or returned data.
+  const originalRegisterTool = server.registerTool.bind(server);
+
+  (server as any).registerTool = (
+    name: string,
+    config: any,
+    handler: (...args: any[]) => Promise<any> | any
+  ) => {
+    return originalRegisterTool(name, config, async (...args: any[]) => {
+      let outcome: "success" | "failure" = "success";
+
+      try {
+        const result = await handler(...args);
+
+        if (
+          result &&
+          typeof result === "object" &&
+          result.isError === true
+        ) {
+          outcome = "failure";
+        }
+
+        return result;
+      } catch (error) {
+        outcome = "failure";
+        throw error;
+      } finally {
+        await logToolCall(name, outcome);
+      }
+    });
+  };
 
   // Tool 1: List files and directories
   server.registerTool(
@@ -89,7 +143,7 @@ function createMcpServer() {
     }
   );
 
-  // Existing file tools
+  // Register existing file and Git tools.
   registerReadFile(server);
   registerWriteFile(server);
   registerStrReplace(server);
@@ -102,13 +156,13 @@ function createMcpServer() {
 
 const app = express();
 
-// Required when running behind ngrok
+// Required when running behind ngrok.
 app.set("trust proxy", 1);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// OAuth authorization and discovery endpoints
+// OAuth authorization and discovery endpoints.
 app.use(
   mcpAuthRouter({
     provider,
@@ -118,7 +172,7 @@ app.use(
   })
 );
 
-// Rate-limit owner-password attempts
+// Rate-limit owner-password attempts.
 app.post(
   "/consent",
   rateLimit({
@@ -130,7 +184,7 @@ app.post(
   (req, res) => provider.approve(req, res)
 );
 
-// Require a valid OAuth bearer token for MCP requests
+// Require a valid OAuth bearer token for MCP requests.
 const bearerAuth = requireBearerAuth({
   verifier: provider,
   resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(MCP_URL),
@@ -141,7 +195,7 @@ app.get("/", (_req, res) => {
   res.send("MCP File Server is running.");
 });
 
-// Protect the existing MCP endpoint
+// Protected MCP endpoint using stateless POST requests.
 app.post("/mcp", bearerAuth, async (req, res) => {
   const server = createMcpServer();
 
@@ -168,7 +222,7 @@ app.post("/mcp", bearerAuth, async (req, res) => {
   }
 });
 
-// This server uses stateless POST requests for MCP
+// This server uses stateless POST requests for MCP.
 app.get("/mcp", (_req, res) => {
   res.status(405).end();
 });
