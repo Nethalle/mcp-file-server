@@ -2,7 +2,7 @@
 
 A remote **Model Context Protocol (MCP)** file-server connector. It lets authorized AI agents list, read, write, edit and search files in a restricted workspace, and inspect the project's Git state, over **Streamable HTTP** with **OAuth** authorization. A handoff protocol stored in the workspace lets several agent sessions continue the same project.
 
-> Course project: *Midterms Pt 1: Build Your Own* (CS 3A / CS 3B elective, Model Context Protocol).
+> Course project: *Midterms Pt 1: Build Your Own* (BSCS-3B, Model Context Protocol).
 
 ---
 
