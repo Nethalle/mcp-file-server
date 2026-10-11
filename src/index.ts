@@ -1,11 +1,19 @@
-
 import express from "express";
 import fs from "node:fs/promises";
 import dotenv from "dotenv";
+import rateLimit from "express-rate-limit";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import {
+  mcpAuthRouter,
+  getOAuthProtectedResourceMetadataUrl,
+} from "@modelcontextprotocol/sdk/server/auth/router.js";
+import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
+
 import { z } from "zod";
 import { WORKSPACE, resolveSafePath } from "./sandbox.js";
+import { FileServerOAuthProvider } from "./oauth/provider.js";
 
 import { registerReadFile } from "./tools/readFile.js";
 import { registerWriteFile } from "./tools/writeFile.js";
@@ -15,6 +23,17 @@ import { registerSearch } from "./tools/search.js";
 import { registerGitTools } from "./tools/gitTools.js";
 
 dotenv.config();
+
+const BASE_URL = process.env.BASE_URL;
+
+if (!BASE_URL) {
+  throw new Error("Missing BASE_URL in .env");
+}
+
+const issuerUrl = new URL(BASE_URL);
+const MCP_URL = new URL("/mcp", BASE_URL);
+
+const provider = new FileServerOAuthProvider();
 
 function createMcpServer() {
   const server = new McpServer({
@@ -70,35 +89,60 @@ function createMcpServer() {
     }
   );
 
-  // Tool 2: Read a section of a file
+  // Existing file tools
   registerReadFile(server);
-
-  // Tool 3: Create or overwrite a file
   registerWriteFile(server);
-
-  // Tool 4: Replace an exact, unique text match
   registerStrReplace(server);
-
-  // Tool 5: Delete a file with explicit confirmation
   registerDeleteFile(server);
-
-  // Tool 6: Search text inside workspace files
   registerSearch(server);
-
-  // Tool 7 and 8: Git status and Git diff
   registerGitTools(server);
 
   return server;
 }
 
 const app = express();
+
+// Required when running behind ngrok
+app.set("trust proxy", 1);
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+// OAuth authorization and discovery endpoints
+app.use(
+  mcpAuthRouter({
+    provider,
+    issuerUrl,
+    resourceServerUrl: MCP_URL,
+    scopesSupported: ["files"],
+  })
+);
+
+// Rate-limit owner-password attempts
+app.post(
+  "/consent",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
+  (req, res) => provider.approve(req, res)
+);
+
+// Require a valid OAuth bearer token for MCP requests
+const bearerAuth = requireBearerAuth({
+  verifier: provider,
+  resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(MCP_URL),
+  expectedResource: MCP_URL,
+});
 
 app.get("/", (_req, res) => {
   res.send("MCP File Server is running.");
 });
 
-app.post("/mcp", async (req, res) => {
+// Protect the existing MCP endpoint
+app.post("/mcp", bearerAuth, async (req, res) => {
   const server = createMcpServer();
 
   try {
@@ -124,9 +168,19 @@ app.post("/mcp", async (req, res) => {
   }
 });
 
+// This server uses stateless POST requests for MCP
+app.get("/mcp", (_req, res) => {
+  res.status(405).end();
+});
+
+app.delete("/mcp", (_req, res) => {
+  res.status(405).end();
+});
+
 const PORT = Number(process.env.PORT) || 3000;
 
 app.listen(PORT, () => {
   console.log(`MCP File Server running on port ${PORT}`);
   console.log(`Workspace: ${WORKSPACE}`);
+  console.log(`OAuth issuer: ${issuerUrl.origin}`);
 });
